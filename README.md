@@ -1,2 +1,2 @@
 # docencia_AID2022
-Recursos para la materia AID-UBA
+Recursos para dictar la materia AID-UBA (2022)
