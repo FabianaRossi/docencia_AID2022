@@ -1,0 +1,389 @@
+---
+title: "Clase 8: Análisis de Correspondencias Simple"
+author: "Práctico AID 2022"
+date: "03/06/2022"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    df_print: paged
+  
+---
+
+# Introducción
+
+El análisis de corrrespondencias es una técnica descriptiva/exploratoria diseñada para analizar correspondencias entre filas y columnas de una tabla múltiple. Constituye una extensión de la Análisis de Componentes Principales (PCA) para datos categóricos, y permite la exploración de su estructura.
+
+El objetivo del análisis de correspondencias es la representación de las entradas de la tabla de frecuencias relativas en términos de distancias entre filas y columnas individuales, en un espacio de baja dimensión (escalado multidimensional).
+
+Asume que las variables son nominales y permite describir las relaciones entre las categorías de cada variable, así como la relación entre las variables. Además, el análisis de correspondencias se puede utilizar para analizar cualquier tabla de medidas de correspondencia que sean positivas.
+
+
+## Cargo librerías
+```{r librerias, warning=F, message=F, warn.conflicts=FALSE}
+library(FactoMineR)
+library(factoextra)
+library(RColorBrewer)
+library(ggplot2)
+library(ggmosaic)
+library(dplyr)
+library(tidyverse)
+library(DescTools)
+library(corrplot)
+library(gplots)
+library(FactoClass)
+library(rgl)
+library(logmult)
+```
+
+## Estilo general para los gráficos
+```{r theme}
+theme <- theme(text = element_text(size=10),
+               plot.title = element_text(size = 12, face = "bold.italic", hjust = 0.5), 
+               axis.title.x = element_text(size = 10, face="bold", colour='black'),         
+               axis.title.y = element_text(size = 10, face="bold"),
+               panel.border = element_blank(),
+               panel.grid.major = element_blank(),
+               panel.grid.minor = element_blank(), 
+               legend.title = element_text(face="bold"))
+```
+
+
+## Intuición gráfica
+_(Ejemplo M.Greenacre) Relación entre destinos de un viaje y cantidad de días festivos_
+```{r ed}
+# Creación de BD
+noruega <- c(6,1,11)
+canada <- c(1,3,11)
+grecia <- c(4,25,0)
+francia <- c(2,2,20)
+df_viaje <-  rbind(noruega,canada,grecia,francia)
+colnames(df_viaje) <- c("Festivos","Media Jornada","J. completa")
+rownames(df_viaje) <- c("noruega","canada","grecia","francia")
+df_viaje
+```
+
+Cálculo de perfiles fila
+```{r ed1}
+# Perfiles fila (la suma de las frecuencias de cada fila da 1)
+df_viaje_fila <-  round(prop.table(df_viaje,1),3)
+df_viaje_fila
+```
+
+Representación de perfiles fila sobre coordenadas de columnas 
+Distancias euclídeas sobre plano
+```{r ed2}
+open3d()
+bg3d(color = "white")
+rgl.lines(c(0,1.2),c(0,0),c(0,0), color='lightgray')
+rgl.lines(c(0,0),c(0,1.2),c(0,0), color='lightgray')
+rgl.lines(c(0,0),c(0,0),c(0,1.2), color='lightgray')
+
+rgl.lines(c(0,0),c(0,1),c(1,0), size=2, color='steelblue2')
+rgl.lines(c(0,1),c(1,0),c(0,0), size=2, color='steelblue2')
+rgl.lines(c(0,1),c(0,0),c(1,0), size=2, color='steelblue2')
+
+rgl.points(df_viaje_fila[,3],df_viaje_fila[,1],df_viaje_fila[,2], size=4, color='darkblue')
+
+rgl.texts(df_viaje_fila[,3],df_viaje_fila[,1],df_viaje_fila[,2], text=rownames(df_viaje_fila), color='darkblue', cex=.5)
+
+rgl.texts(matrix(c( 0,0,1.25, 1.15,0,0, 0,1.15,0), byrow = T, ncol = 3), text=colnames(df_viaje_fila), color='steelblue2')
+
+rglwidget()
+```
+
+Explicación gráfica de Inercia
+![-](/Users/FR/Desktop/inercia.png)
+
+_Foto tomada de https://www.fbbva.es/wp-content/uploads/2017/05/dat/DE_2008_practica_analisis_correspondencias.pdf, página 50_
+
+_A mayores valores de inercia (> chi-cuadrado), mayor alejamiento de la independencia y del perfil medio_
+
+
+Representación de perfiles fila sobre coordenadas de columnas 
+Distancias chi-cuadrado
+```{r ed3, message=F, warning=F}
+open3d()
+bg3d(color = "white")
+table.pro <- df_viaje/apply(df_viaje,1,sum)
+table.x   <- 1-table.pro[,1]-table.pro[,3]/2
+table.y   <- table.pro[,3]*sqrt(3)/2
+
+table.rowsum <- apply(df_viaje, 1, sum)
+table.colsum <- apply(df_viaje, 2, sum)
+table.sum    <- sum(df_viaje)
+table.exp    <- table.rowsum%o%table.colsum/table.sum
+chi2         <- sum((df_viaje-table.exp)^2/table.exp)
+
+# distancias chi-cuadrado de perfiles fila al perfil fila medio
+table.colmass <- table.colsum/table.sum
+sqrt(apply((t(table.pro)-table.colmass)^2/table.colmass, 2, sum))
+# todas las distancias chi-cuadrado
+tablec.pro <- rbind(table.pro,table.colmass)
+rownames(tablec.pro)[5] <- "ave"
+dist(sweep(tablec.pro, 2, sqrt(table.colmass), FUN = "/"))
+
+# Gráfico de distancias chi-cuadrado
+table.wt <- sqrt(table.colmass)
+
+rgl.lines(c(0,1.1/table.wt[2]), c(0,0), c(0,0), color='lightgray')
+rgl.lines(c(0,0), c(0,1.1/table.wt[3]), c(0,0), color='lightgray')
+rgl.lines(c(0,0), c(0,0), c(0,1.1/table.wt[1]), color='lightgray')
+
+rgl.lines(c(0,0), c(0,1/table.wt[3]), c(1/table.wt[1],0), size = 2, color='red')
+rgl.lines(c(0,1/table.wt[2]), c(1/table.wt[3],0), c(0,0), size = 2, color='red')
+rgl.lines(c(0,1/table.wt[2]), c(0,0), c(1/table.wt[1],0), size = 2, color='red')
+
+table.chi <- t(t(table.pro)/table.wt)
+
+rgl.points(table.chi[,2],table.chi[,3],table.chi[,1], size=4, color='darkred')
+
+rgl.texts(table.chi[,2], table.chi[,3], table.chi[,1], text = rownames(df_viaje), color='darkred', cex=0.5)
+rgl.texts(matrix(c( 0,0,1.15/table.wt[2], 1.15/table.wt[3],0,0, 0,1.15/table.wt[1],0), 
+          byrow = T, ncol = 3), text = colnames(df_viaje), color='darkred')
+rglwidget()
+```
+------------------------------------------------
+# Ejemplos
+## 1) Ejemplo 1
+### Creo datos
+_Relación de grado de atención de niños según el nivel SC de sus padres_ 
+```{r datos1, echo=TRUE}
+# Creación de BD
+atento  <- c(64,57, 57, 72, 36 ,21)
+leve    <- c(94,94,105,141, 97 ,51)
+moderado <- c(58,54, 65, 77, 54 ,34)
+disperso <- c(46,40, 60, 94, 78 ,51) 
+base <-  rbind(atento,leve,moderado,disperso)
+colnames(base) <- c("A","B","C","D","E","F")
+rownames(base) <- c("Atento","Sínt.leves","Sínt.moderados","Disperso")
+base
+```
+
+### Test de independencia Chi cuadrado
+```{r test, echo=TRUE}
+# Test de independencia Chi-cuadrado
+chisq.test(base)
+```
+
+Representación gráfica de los resultados (valores absolutos)
+```{r r}
+balloonplot(t(as.table(as.matrix(base))), main ="Atención según nivel SC padres", xlab ="", ylab="",
+            label = FALSE, show.margins = FALSE)
+```
+
+Gráfico de mosaico
+```{r mosaico, echo=TRUE, warning=F}
+#mosaicplot(base, col=brewer.pal(10,"Paired"), main="Distribución categoría de nivel atención\nsegún Nivel sc padres")
+
+df_base <- data.frame(base)
+df_base$atencion <- rownames(df_base)
+df_base <- df_base %>% pivot_longer(!atencion, names_to = "Variable", values_to = "valor")
+df_base <- as.data.frame(lapply(df_base, rep, df_base$valor))
+df_base$atencion <- factor(df_base$atencion, levels= c('Disperso','Sínt.moderados', 'Sínt.leves','Atento'))
+
+ggplot(data=df_base) +
+  geom_mosaic(aes(x = product(atencion, Variable), 
+                  fill = Variable, alpha=atencion)) + theme +
+  labs(title = 'Distribución categoría de nivel atención\nsegún Nivel sc padres',
+              y = 'Nivel de atención', x = 'Nivel sc padres') +
+  scale_fill_viridis_d() +
+  theme(legend.position = 'none')
+
+```
+
+### Análisis de perfiles
+Perfiles Fila
+```{r perfiles fila, echo=TRUE, warning=F}
+# Perfiles fila (frecuencias de A/B/C... condicionales a cada categoría de atención)
+bd_fila <-round(prop.table(base,1),3)
+bd_fila 
+
+ggplot(data=df_base, aes(x = atencion, fill= Variable))+geom_bar(position='fill', alpha=0.9)+theme+
+  labs(title = 'Distribución categoría de nivel sc padres según atención',
+              y = 'Frecuencia de niños', x = 'Atención') +
+  scale_fill_viridis_d(name='Nivel SC padres') 
+
+bd_fila <- as.data.frame(bd_fila) 
+bd_fila$atencion <- rownames(bd_fila)
+bd_fila <- bd_fila %>% pivot_longer(!atencion, names_to = "Variable", values_to = "valor")
+
+ggplot(data=bd_fila, aes(y = valor, x= atencion, color=Variable))+geom_line(aes(group = Variable))+theme+
+  labs(title = 'Distribución categoría de nivel sc padres según atención',
+              y = 'Frecuencia de niños', x = 'Atención') +
+  scale_color_viridis_d(name='Nivel SC padres') 
+
+#plotct (base,"row",col=brewer.pal(10,"Paired"))# -> equivalente!
+```
+
+Perfiles Columna
+```{r perfiles columna, echo=TRUE, warning=F}
+# Perfiles columna (frecuencias de niveles de atención, condicional a cada columna (categoría SC padres))
+bd_col <- round(prop.table(base,2),3)
+bd_col
+
+ggplot(data=df_base, aes(x = Variable, fill= atencion))+geom_bar(position='fill', alpha=0.9)+theme+
+  labs(title = 'Distribución categoría de nivel atención\nsegún Nivel sc padres',
+              y = 'Frecuencia de niños', x = 'Nivel sc padres') +
+  scale_fill_viridis_d(name='Atención') 
+
+
+bd_col <- as.data.frame(bd_col) 
+bd_col$atencion <- rownames(bd_col)
+bd_col <- bd_col %>% pivot_longer(!atencion, names_to = "Variable", values_to = "valor")
+
+ggplot(data=bd_col, aes(y = valor, x= Variable, color=atencion))+geom_line(aes(group = atencion))+theme+
+  labs(title = 'Distribución categoría de nivel de atención según nivel SC padres',
+              y = 'Frecuencia de niños', x = 'Nivel SC padres') +
+  scale_color_viridis_d(name='Atención') 
+```
+
+### Análisis de correspondencia simple
+```{r ACS,echo=TRUE}
+atencion.ac = CA(base,graph=FALSE) # Realiza el analisis de correspondencias
+get_ca_row(atencion.ac) # Muestra lo que se guarda de las filas
+get_ca_col(atencion.ac) # Muestra lo que se guarda de las columnas
+```
+
+Contribución de filas y columnas
+```{r ACS1,echo=TRUE}
+# Contribución de filas y columnas al eje 1
+fviz_contrib(atencion.ac,choice="row",axes=1, fill="royalblue",color ="black")+ theme(axis.text.x = element_text(angle=0)) + theme + labs(title = 'Contribución de filas',  x = 'Nivel de atención', y = 'Contribución (%)')+theme(panel.background = element_rect(fill = "grey95"))
+
+fviz_contrib(atencion.ac,choice="col",axes=1, fill="royalblue",color ="black")+
+ theme(axis.text.x = element_text(angle=0)) + theme + labs(title = 'Contribución de columnas',  x = 'Nivel SC', y = 'Contribución (%)')+theme(panel.background = element_rect(fill = "grey95"))
+
+```
+
+### Biplot simétrico
+_OJO con la compatibilidad de coordenadas filas - columnas y las distancias calculadas. No se pueden analizar distancias entre categorías de fila y columna en un biplot simétrico. Las comparaciones son entre puntos fila o entre puntos columna, por separado._
+
+```{r BiPlot,echo=TRUE, warning=FALSE, message=FALSE}
+fviz_ca_biplot( atencion.ac , repel  =TRUE, col.row="royalblue",col.col="indianred") + labs(title='Biplot Análisis de correspondencias Simple')+
+theme+theme(panel.background = element_rect(fill = "grey95"))
+
+fviz_ca_biplot( atencion.ac , repel  =TRUE, col.row="blue",col.col="cos2",gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")) + labs(title='Biplot Análisis de correspondencias Simple\ncalidad de representación (cos2)')+
+theme+theme(panel.background = element_rect(fill = "grey95"))
+```
+
+Análisis de porcentaje de inercia explicada en cada dimensión
+```{r SP,echo=TRUE}
+fviz_screeplot(atencion.ac, addlabels = TRUE, ylim = c(0, 105))+
+ theme(axis.text.x = element_text(angle=0)) + theme + labs(title = 'Scree plot',  x = 'Dimensión', y = 'Contribución inercia explicada')+theme(panel.background = element_rect(fill = "grey95"))
+```
+
+Coordenadas de puntos en nuevas dimensiones
+```{r BP,echo=TRUE}
+#coordenadas de filas y columnas
+atencion.ac$row$coord 
+atencion.ac$col$coord
+atencion.ac$eig #autovalores, inercia explicada
+```
+
+Información contenida por fila/col (coordenadas, contribuciones, calidad de representación [cos2] e inercia)
+```{r BP1,echo=TRUE}
+atencion.ac$row
+```
+
+### Análisis de residuos
+```{r residuos,echo=TRUE}
+# Análisis de residuos del test chi q
+corrplot(chisq.test(base)$residuals , is.cor = FALSE, main='Residuales')
+
+base_completa <- as.data.frame(base) 
+base_completa$marginales <- rowSums(base_completa)
+margin.table(base, 1)
+base_completa <- rbind(base_completa,colSums(base_completa))
+margin.table(base, 2)
+base_completa <- base_completa %>% mutate(perf_medioF= round(marginales/1600,2))
+base_completa <- rbind(base_completa,round(colSums(base_completa)/1600,2))
+rownames(base_completa)<-c("Atento","Sínt.leves","Sínt.moderados","Disperso","marginales2","perfil_medioC")
+```
+
+BASE DE DATOS OBSERVADA CON MARGINALES y frecuencias medias
+```{r obs_marginales}
+base_completa
+```
+
+BASE DE DATOS ESPERADA
+```{r esp}
+round(ExpFreq(base, freq='abs'),0)
+#round(ExpFreq(base, freq='rel'),2)
+```
+
+
+## 2) Ejemplo 2
+### Cargo datos
+_Responsabilidad de tareas del hogar utilizando base de datos de R_
+```{r datos_biss, echo=TRUE}
+data(housetasks)
+housetasks
+```
+
+### Test de independencia Chi cuadrado
+```{r test2, echo=TRUE}
+# Test de independencia Chi-cuadrado
+chisq.test(housetasks)
+```
+
+Representación gráfica de valores absolutos de la tabla
+```{r gplots}
+dt <- as.table(as.matrix(housetasks))
+balloonplot(t(dt), main ="Tareas del hogar", xlab ="", ylab="",
+            label = FALSE, show.margins = FALSE)
+```
+
+### Análisis de correspondencias simple
+```{r housetasks0}
+house.ca <- CA(housetasks, graph = FALSE)
+
+# Análisis de correspondencias de filas y columnas en simultáneo
+fviz_ca_biplot(house.ca) +
+ theme(axis.text.x = element_text(angle=0)) + theme + labs(title = 'Biplot de Análisis de Correspondencia')+theme(panel.background = element_rect(fill = "grey95"))
+
+fviz_screeplot(house.ca, addlabels = TRUE, ylim = c(0, 50))+
+ theme(axis.text.x = element_text(angle=0)) + theme + labs(title = 'Scree plot',  x = 'Dimensión', y = 'Contribución inercia explicada')+theme(panel.background = element_rect(fill = "grey95"))
+#fviz_ca_row(house.ca) #filas
+#fviz_ca_col(house.ca) #columnas
+
+house.ca$row$coord #cos2/contrib/intertia
+house.ca$col$coord #cos2/contrib/intertia
+```
+
+## 2) Ejemplo 3
+### Cargo datos
+_Relación de edad al delinquir y el año (base de datos del paquete logmult)_
+```{r datos_bis, echo=TRUE, warning=FALSE}
+data("criminal", package = "logmult")
+criminal
+```
+
+### Test de independencia Chi-cuadrado
+```{r test3, echo=TRUE}
+# Test de independencia Chi-cuadrado
+chisq.test(criminal)
+```
+
+Representación gráfica de valores absolutos
+```{r rr}
+dtc <- as.table(as.matrix(criminal))
+balloonplot(t(dtc), main ="AC de crímenes y edad", xlab ="", ylab="",
+            label = FALSE, show.margins = FALSE)
+```
+
+### Análisis de correspondencias simple
+```{r housetasks}
+criminal.ca <- CA(criminal, graph = FALSE)
+
+# Análisis de correspondencias de filas y columnas en simultáneo
+fviz_ca_biplot(criminal.ca) +
+ theme(axis.text.x = element_text(angle=0)) + theme + labs(title = 'Biplot de Análisis de Correspondencia')+theme(panel.background = element_rect(fill = "grey95"))
+
+fviz_screeplot(criminal.ca, addlabels = TRUE, ylim = c(0, 100))+
+ theme(axis.text.x = element_text(angle=0)) + theme + labs(title = 'Scree plot',  x = 'Dimensión', y = 'Contribución inercia explicada')+theme(panel.background = element_rect(fill = "grey95"))
+#fviz_ca_row(criminal.ca) #filas
+#fviz_ca_col(criminal.ca) #columnas
+
+criminal.ca$row$coord #cos2/contrib/intertia
+criminal.ca$col$coord #cos2/contrib/intertia
+```
